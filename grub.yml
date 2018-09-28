@@ -1,0 +1,51 @@
+---
+- hosts: all
+  become: yes
+  handlers:
+    - name: update grub config
+      command: "{{ grub_update_cmd }}"
+      notify:
+        - set bootloader file permissions after updating grub config
+    
+    - name: set bootloader file permissions after updating grub config
+      file:
+          path: "{{ grub_config_file_boot }}"
+          mode: "0644"
+  vars:
+    security_grub_password_hash: grub.pbkdf2.sha512.10000.7B21785BEAFEE3AC71459D8210E3FB42EC0F5011C24A2DF31A8127D43A0BB4F1563549DF443791BE8EDA3AE4E4D4E04DB78D4CA35320E4C646CF38320CBE16EC.4B46176AAB1405D97BADB696377C29DE3B3266188D9C3D2E57F3AE851815CCBC16A275B0DBF6F79D738DAD8F598BEE64C73AE35F19A28C5D1E7C7D96FF8A739B
+    grub_custom_file: /etc/grub.d/40_custom
+    grub_linux_file: /etc/grub.d/10_linux
+    grub_update_cmd: "/usr/sbin/grub2-mkconfig -o {{ grub_config_file_boot }}"
+    grub_conf_file: /boot/grub2/grub.cfg
+
+  tasks:
+    - name: Set facts
+      set_fact:
+        grub_config_file_boot: "{{ grub_conf_file }}"
+
+    - name: Set a GRUB 2 password for single-user/maintenance modes
+      block:
+        - blockinfile:
+            path: "{{ grub_custom_file }}"
+            insertbefore: EOF
+            marker: "# {mark} MANAGED BY ANSIBLE-HARDENING"
+            block: |
+              set superusers="root"
+              password_pbkdf2 root {{ security_grub_password_hash }}
+            state: present
+          notify:
+              - update grub config
+        - lineinfile:
+            path: "{{ grub_linux_file }}"
+            state: present
+            firstmatch: yes
+            regexp: '^locale"'
+            insertafter: 'locale"'
+            line: 'CLASS="--class gnu-linux --class gnu --class os --unrestricted"'
+          notify:
+              - update grub config
+          tags:
+              - auth
+              - high
+              - V-71961
+              - V-71963
